@@ -59,6 +59,7 @@ type connection struct {
 	service      GraphQLService
 	writeTimeout time.Duration
 	ws           wsConnection
+	ctx          context.Context
 }
 
 // ReadLimit limits the maximum size of incoming messages
@@ -75,6 +76,17 @@ func WriteTimeout(d time.Duration) func(conn *connection) {
 	}
 }
 
+func ConnectWithCopyContext(ws wsConnection, service GraphQLService, ctx context.Context, keyList []interface{}) func() {
+
+	opt := func(conn *connection) {
+		for _, key := range keyList {
+			conn.ctx = context.WithValue(conn.ctx, key, ctx.Value(key))
+		}
+	}
+
+	return Connect(ws, service, opt)
+}
+
 // Connect implements the apollographql subscriptions-transport-ws protocol@v0.9.4
 // https://github.com/apollographql/subscriptions-transport-ws/blob/v0.9.4/PROTOCOL.md
 func Connect(ws wsConnection, service GraphQLService, options ...func(conn *connection)) func() {
@@ -88,14 +100,15 @@ func Connect(ws wsConnection, service GraphQLService, options ...func(conn *conn
 		WriteTimeout(time.Second),
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	conn.cancel = cancel
+	conn.ctx = ctx
+
 	for _, opt := range append(defaultOpts, options...) {
 		opt(conn)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	conn.cancel = cancel
-	conn.readLoop(ctx, conn.writeLoop(ctx))
-
+	conn.readLoop(conn.ctx, conn.writeLoop(conn.ctx))
 	return cancel
 }
 
