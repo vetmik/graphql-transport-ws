@@ -52,6 +52,7 @@ type initMessagePayload struct{}
 // GraphQLService interface
 type GraphQLService interface {
 	Subscribe(ctx context.Context, document string, operationName string, variableValues map[string]interface{}) (payloads <-chan interface{}, err error)
+	GetContextKey() []interface{}
 }
 
 type connection struct {
@@ -76,10 +77,10 @@ func WriteTimeout(d time.Duration) func(conn *connection) {
 	}
 }
 
-func ConnectWithCopyContext(ws wsConnection, service GraphQLService, ctx context.Context, keyList []interface{}) func() {
+func ConnectWithCopyContext(ws wsConnection, service GraphQLService, ctx context.Context) func() {
 
 	opt := func(conn *connection) {
-		for _, key := range keyList {
+		for _, key := range service.GetContextKey() {
 			conn.ctx = context.WithValue(conn.ctx, key, ctx.Value(key))
 		}
 	}
