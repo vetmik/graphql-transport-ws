@@ -52,7 +52,6 @@ type initMessagePayload struct{}
 // GraphQLService interface
 type GraphQLService interface {
 	Subscribe(ctx context.Context, document string, operationName string, variableValues map[string]interface{}) (payloads <-chan interface{}, err error)
-	GetContextKey() []interface{}
 }
 
 type connection struct {
@@ -60,7 +59,6 @@ type connection struct {
 	service      GraphQLService
 	writeTimeout time.Duration
 	ws           wsConnection
-	ctx          context.Context
 }
 
 // ReadLimit limits the maximum size of incoming messages
@@ -77,20 +75,9 @@ func WriteTimeout(d time.Duration) func(conn *connection) {
 	}
 }
 
-func ConnectWithCopyContext(ws wsConnection, service GraphQLService, ctx context.Context) func() {
-
-	opt := func(conn *connection) {
-		for _, key := range service.GetContextKey() {
-			conn.ctx = context.WithValue(conn.ctx, key, ctx.Value(key))
-		}
-	}
-
-	return Connect(ws, service, opt)
-}
-
 // Connect implements the apollographql subscriptions-transport-ws protocol@v0.9.4
 // https://github.com/apollographql/subscriptions-transport-ws/blob/v0.9.4/PROTOCOL.md
-func Connect(ws wsConnection, service GraphQLService, options ...func(conn *connection)) func() {
+func Connect(ctx context.Context, ws wsConnection, service GraphQLService, options ...func(conn *connection)) func() {
 	conn := &connection{
 		service: service,
 		ws:      ws,
@@ -101,15 +88,14 @@ func Connect(ws wsConnection, service GraphQLService, options ...func(conn *conn
 		WriteTimeout(time.Second),
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	conn.cancel = cancel
-	conn.ctx = ctx
-
 	for _, opt := range append(defaultOpts, options...) {
 		opt(conn)
 	}
 
-	conn.readLoop(conn.ctx, conn.writeLoop(conn.ctx))
+	ctx, cancel := context.WithCancel(ctx)
+	conn.cancel = cancel
+	conn.readLoop(ctx, conn.writeLoop(ctx))
+
 	return cancel
 }
 
